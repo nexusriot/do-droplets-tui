@@ -211,7 +211,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.errText = ""
 		m.status = msg.status
-		// usually refresh after an action
+
+		// Requirement: after "start" (Power On) go back to list
+		if msg.act == actPowerOn {
+			m.st = stateList
+			m.droplet = nil
+		}
+
+		// Optional: also leave confirm dialog after any action
+		if m.st == stateConfirmAction || m.st == stateConfirmDelete {
+			// If we just powered on we already forced list above;
+			// otherwise go back to details if you want:
+			if m.st != stateList {
+				m.st = stateDetails
+			}
+		}
+
 		cmds = append(cmds, m.refreshCmd())
 
 	case apiErrMsg:
@@ -244,6 +259,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m Model) nameExists(name string) bool {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return false
+	}
+	for _, r := range m.rows {
+		if strings.ToLower(strings.TrimSpace(r.Name)) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) View() string {
@@ -366,6 +394,10 @@ func (m Model) updateList(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 	case key.Matches(k, m.keys.Refresh):
 		cmds = append(cmds, m.refreshCmd())
 	case key.Matches(k, m.keys.Create):
+		if len(m.rows) == 0 {
+			m.errText = "load droplets first (press r) so duplicates can be checked"
+			return m, cmds
+		}
 		m.st = stateCreate
 		m.initCreateForm()
 	case key.Matches(k, m.keys.Enter):
@@ -571,6 +603,9 @@ func (m Model) buildCreateReq() (do.CreateDropletReq, error) {
 	if name == "" {
 		return do.CreateDropletReq{}, fmt.Errorf("name is required (fill Name field)")
 	}
+	if m.nameExists(name) {
+		return do.CreateDropletReq{}, fmt.Errorf("droplet %q already exists (choose another name)", name)
+	}
 
 	return do.CreateDropletReq{
 		Name:       name,
@@ -607,7 +642,10 @@ func (m Model) currentSelectedID() (int, bool) {
 
 type dropletsLoadedMsg struct{ rows []do.DropletRow }
 type dropletDetailsMsg struct{ d *godo.Droplet }
-type apiDoneMsg struct{ status string }
+type apiDoneMsg struct {
+	status string
+	act    actionKind
+}
 type apiErrMsg struct{ err error }
 
 func (m Model) refreshCmd() tea.Cmd {
@@ -667,7 +705,7 @@ func (m Model) runActionCmd(a actionKind, id int) tea.Cmd {
 		if err != nil {
 			return apiErrMsg{err: err}
 		}
-		return apiDoneMsg{status: status}
+		return apiDoneMsg{status: status, act: a}
 	}
 }
 
