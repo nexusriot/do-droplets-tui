@@ -1,1 +1,62 @@
 package config
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+const DefaultPath = "/etc/do-droplets-tui/config.json"
+
+type Config struct {
+	DigitalOcean DigitalOceanConfig `json:"digitalocean"`
+	UI           UIConfig           `json:"ui"`
+}
+
+type DigitalOceanConfig struct {
+	Token string `json:"token"`
+}
+
+type UIConfig struct {
+	// Defaults shown in the Create Droplet form.
+	DefaultRegion string `json:"default_region"`
+	DefaultSize   string `json:"default_size"`
+	DefaultImage  string `json:"default_image"`
+	DefaultTags   string `json:"default_tags"` // CSV string e.g. "dev,tui"
+	DefaultIPv6   bool   `json:"default_ipv6"`
+}
+
+func Load(path string) (Config, error) {
+	if path == "" {
+		path = DefaultPath
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read config %q: %w", path, err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+	}
+
+	// Some safe defaults if not provided
+	if cfg.UI.DefaultRegion == "" {
+		cfg.UI.DefaultRegion = "fra1"
+	}
+	if cfg.UI.DefaultSize == "" {
+		cfg.UI.DefaultSize = "s-1vcpu-1gb"
+	}
+	if cfg.UI.DefaultImage == "" {
+		cfg.UI.DefaultImage = "ubuntu-24-04-x64"
+	}
+
+	return cfg, nil
+}
+
+func EnsureDirFor(path string) error {
+	dir := filepath.Dir(path)
+	return os.MkdirAll(dir, 0o755)
+}

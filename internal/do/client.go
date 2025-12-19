@@ -15,14 +15,17 @@ type Client struct {
 	godo *godo.Client
 }
 
-func New(token string) *Client {
+func New(token string) (*Client, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, fmt.Errorf("digitalocean token is empty")
+	}
+
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	httpClient := oauth2.NewClient(context.Background(), ts)
-
-	// Optional: small transport defaults
 	httpClient.Timeout = 30 * time.Second
 
-	return &Client{godo: godo.NewClient(httpClient)}
+	return &Client{godo: godo.NewClient(httpClient)}, nil
 }
 
 type DropletRow struct {

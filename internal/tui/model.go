@@ -40,6 +40,14 @@ const (
 	actDelete
 )
 
+type Options struct {
+	DefaultRegion string
+	DefaultSize   string
+	DefaultImage  string
+	DefaultTags   string // CSV
+	DefaultIPv6   bool
+}
+
 type api interface {
 	ListDroplets(context.Context) ([]do.DropletRow, error)
 	GetDroplet(context.Context, int) (*godo.Droplet, error)
@@ -130,9 +138,10 @@ type Model struct {
 	tagsIn   textinput.Model
 	ipv6In   textinput.Model // "true/false"
 	vpcIn    textinput.Model
+	opts     Options
 }
 
-func NewModel(api api) Model {
+func NewModel(api api, opts Options) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Line
 
@@ -159,6 +168,7 @@ func NewModel(api api) Model {
 		spinner: sp,
 		st:      stateList,
 		table:   t,
+		opts:    opts,
 		status:  "Press r to load droplets",
 	}
 
@@ -304,7 +314,7 @@ func (m Model) viewConfirm() string {
 	return "\n" + box + "\n"
 }
 
-func (m Model) initCreateForm() {
+func (m *Model) initCreateForm() {
 	m.nameIn = newInput("Name", "my-droplet")
 	m.regionIn = newInput("Region", "fra1")
 	m.sizeIn = newInput("Size", "s-1vcpu-1gb")
@@ -313,7 +323,21 @@ func (m Model) initCreateForm() {
 	m.tagsIn = newInput("Tags (csv)", "dev,tui")
 	m.ipv6In = newInput("Enable IPv6 (true/false)", "false")
 	m.vpcIn = newInput("VPC UUID (optional)", "")
+
+	// IMPORTANT: set actual default values so Create works immediately.
+	m.nameIn.SetValue("") // keep empty so user must name it (recommended)
+	m.regionIn.SetValue(m.opts.DefaultRegion)
+	m.sizeIn.SetValue(m.opts.DefaultSize)
+	m.imageIn.SetValue(m.opts.DefaultImage)
+	m.tagsIn.SetValue(m.opts.DefaultTags)
+	if m.opts.DefaultIPv6 {
+		m.ipv6In.SetValue("true")
+	} else {
+		m.ipv6In.SetValue("false")
+	}
+
 	m.focus = 0
+	m.blurAll()
 	m.nameIn.Focus()
 }
 
@@ -543,9 +567,13 @@ func (m Model) buildCreateReq() (do.CreateDropletReq, error) {
 	ipv6 := strings.EqualFold(strings.TrimSpace(m.ipv6In.Value()), "true")
 
 	tags := splitCSV(m.tagsIn.Value())
+	name := strings.TrimSpace(m.nameIn.Value())
+	if name == "" {
+		return do.CreateDropletReq{}, fmt.Errorf("name is required (fill Name field)")
+	}
 
 	return do.CreateDropletReq{
-		Name:       strings.TrimSpace(m.nameIn.Value()),
+		Name:       name,
 		Region:     strings.TrimSpace(m.regionIn.Value()),
 		Size:       strings.TrimSpace(m.sizeIn.Value()),
 		ImageSlug:  strings.TrimSpace(m.imageIn.Value()),
