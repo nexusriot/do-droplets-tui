@@ -19,11 +19,10 @@ type DigitalOceanConfig struct {
 }
 
 type UIConfig struct {
-	// Defaults shown in the Create Droplet form.
 	DefaultRegion string `json:"default_region"`
 	DefaultSize   string `json:"default_size"`
 	DefaultImage  string `json:"default_image"`
-	DefaultTags   string `json:"default_tags"` // CSV string e.g. "dev,tui"
+	DefaultTags   string `json:"default_tags"` // CSV, e.g. "dev,tui"
 	DefaultIPv6   bool   `json:"default_ipv6"`
 }
 
@@ -42,7 +41,7 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 
-	// Some safe defaults if not provided
+	// Safe defaults
 	if cfg.UI.DefaultRegion == "" {
 		cfg.UI.DefaultRegion = "fra1"
 	}

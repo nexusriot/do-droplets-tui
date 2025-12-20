@@ -45,33 +45,12 @@ type SSHKeyRow struct {
 	PublicKey   string
 }
 
-func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKeyRow, error) {
-	var out []SSHKeyRow
-	opt := &godo.ListOptions{PerPage: 200, Page: 1}
-
-	for {
-		keys, resp, err := c.godo.Keys.List(ctx, opt)
-		if err != nil {
-			return nil, err
-		}
-		for _, k := range keys {
-			out = append(out, SSHKeyRow{
-				ID:          k.ID,
-				Name:        k.Name,
-				Fingerprint: k.Fingerprint,
-				PublicKey:   k.PublicKey,
-			})
-		}
-		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
-			break
-		}
-		page, err := resp.Links.CurrentPage()
-		if err != nil {
-			break
-		}
-		opt.Page = page + 1
-	}
-	return out, nil
+type VolumeRow struct {
+	ID          string
+	Name        string
+	Region      string
+	SizeGB      int64
+	Description string
 }
 
 func (c *Client) ListDroplets(ctx context.Context) ([]DropletRow, error) {
@@ -183,6 +162,112 @@ func (c *Client) CreateDroplet(ctx context.Context, r CreateDropletReq) (*godo.D
 
 	d, _, err := c.godo.Droplets.Create(ctx, req)
 	return d, err
+}
+
+func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKeyRow, error) {
+	var out []SSHKeyRow
+	opt := &godo.ListOptions{PerPage: 200, Page: 1}
+
+	for {
+		keys, resp, err := c.godo.Keys.List(ctx, opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range keys {
+			out = append(out, SSHKeyRow{
+				ID:          k.ID,
+				Name:        k.Name,
+				Fingerprint: k.Fingerprint,
+				PublicKey:   k.PublicKey,
+			})
+		}
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opt.Page = page + 1
+	}
+	return out, nil
+}
+
+/*
+Volumes: godo v1.133.0 has Storage service.
+If your godo API differs, adjust these three methods only; UI stays the same.
+*/
+
+func (c *Client) ListVolumes(ctx context.Context) ([]VolumeRow, error) {
+	var out []VolumeRow
+	opt := &godo.ListVolumeParams{
+		ListOptions: &godo.ListOptions{PerPage: 200, Page: 1},
+	}
+
+	for {
+		vols, resp, err := c.godo.Storage.ListVolumes(ctx, opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range vols {
+			out = append(out, VolumeRow{
+				ID:          v.ID,
+				Name:        v.Name,
+				Region:      v.Region.Slug,
+				SizeGB:      v.SizeGigaBytes,
+				Description: v.Description,
+			})
+		}
+
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opt.ListOptions.Page = page + 1
+	}
+
+	return out, nil
+}
+
+type CreateVolumeReq struct {
+	Name        string
+	Region      string
+	SizeGB      int64
+	Description string
+}
+
+func (c *Client) CreateVolume(ctx context.Context, r CreateVolumeReq) (*godo.Volume, error) {
+	name := strings.TrimSpace(r.Name)
+	if name == "" {
+		return nil, fmt.Errorf("volume name is required")
+	}
+	if r.Region == "" {
+		r.Region = "fra1"
+	}
+	if r.SizeGB <= 0 {
+		r.SizeGB = 1
+	}
+
+	req := &godo.VolumeCreateRequest{
+		Name:          name,
+		Region:        r.Region,
+		SizeGigaBytes: r.SizeGB,
+		Description:   strings.TrimSpace(r.Description),
+	}
+	v, _, err := c.godo.Storage.CreateVolume(ctx, req)
+	return v, err
+}
+
+func (c *Client) DeleteVolume(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("volume id is empty")
+	}
+	_, err := c.godo.Storage.DeleteVolume(ctx, id)
+	return err
 }
 
 func ParseCSVInts(s string) ([]int, error) {

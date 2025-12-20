@@ -21,7 +21,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Optional: allow env override (handy for CI)
+	// Optional env override (handy for CI)
 	if v := os.Getenv("DO_TOKEN"); v != "" {
 		cfg.DigitalOcean.Token = v
 	}
