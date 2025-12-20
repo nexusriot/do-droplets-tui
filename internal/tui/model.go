@@ -368,18 +368,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// behavior requirements:
 		// - after power on: go back to droplet list
-		if msg.act == actPowerOn {
+		// Close confirm/details/create screens after actions
+		switch msg.act {
+		case actPowerOn, actPowerOff, actShutdown, actReboot:
+			// After actions on droplet, go back to droplets list (your earlier requirement included PowerOn;
+			// doing it for all is usually nicer UX)
 			m.st = stateDroplets
 			m.dropletDetails = nil
-		}
 
-		// - auto close create windows after successful create
-		if msg.act == actCreateDroplet {
+		case actDeleteDroplet:
+			// FIX: after delete, close dialog and return to list
 			m.st = stateDroplets
 			m.dropletDetails = nil
-		}
-		if msg.act == actCreateVolume || msg.act == actDeleteVolume {
+			m.selectedDropletID = 0
+
+		case actCreateDroplet:
+			// Auto close create window after creating
+			m.st = stateDroplets
+			m.dropletDetails = nil
+
+		case actCreateVolume, actDeleteVolume:
 			m.st = stateVolumes
+			m.selectedVolumeID = ""
 		}
 
 		// refresh the active tab after changes
