@@ -38,6 +38,42 @@ type DropletRow struct {
 	Tags   []string
 }
 
+type SSHKeyRow struct {
+	ID          int
+	Name        string
+	Fingerprint string
+	PublicKey   string
+}
+
+func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKeyRow, error) {
+	var out []SSHKeyRow
+	opt := &godo.ListOptions{PerPage: 200, Page: 1}
+
+	for {
+		keys, resp, err := c.godo.Keys.List(ctx, opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range keys {
+			out = append(out, SSHKeyRow{
+				ID:          k.ID,
+				Name:        k.Name,
+				Fingerprint: k.Fingerprint,
+				PublicKey:   k.PublicKey,
+			})
+		}
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opt.Page = page + 1
+	}
+	return out, nil
+}
+
 func (c *Client) ListDroplets(ctx context.Context) ([]DropletRow, error) {
 	var out []DropletRow
 	opt := &godo.ListOptions{PerPage: 200, Page: 1}

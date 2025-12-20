@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ const (
 	stateCreate
 	stateConfirmDelete
 	stateConfirmAction
+	statePickSSHKeys
 )
 
 type actionKind int
@@ -57,14 +59,18 @@ type api interface {
 	Reboot(context.Context, int) error
 	DeleteDroplet(context.Context, int) error
 	CreateDroplet(context.Context, do.CreateDropletReq) (*godo.Droplet, error)
+	ListSSHKeys(context.Context) ([]do.SSHKeyRow, error)
 }
 
 type keyMap struct {
 	Up, Down, Enter, Back, Refresh, Create, Delete, Details key.Binding
 	PowerOn, PowerOff, Shutdown, Reboot                     key.Binding
+	PickSSH                                                 key.Binding
 	Yes, No                                                 key.Binding
 	Quit                                                    key.Binding
 }
+
+type sshKeysLoadedMsg struct{ keys []do.SSHKeyRow }
 
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.Enter, k.Refresh, k.Create, k.Delete, k.Quit}
@@ -95,6 +101,7 @@ func defaultKeys() keyMap {
 		PowerOff: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "power off")),
 		Shutdown: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shutdown")),
 		Reboot:   key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "reboot")),
+		PickSSH:  key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "pick ssh keys")),
 		Yes:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
 		No:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
 		Quit:     key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
@@ -129,16 +136,21 @@ type Model struct {
 	pendingAct  actionKind
 
 	// create form
-	focus    int
-	nameIn   textinput.Model
-	regionIn textinput.Model
-	sizeIn   textinput.Model
-	imageIn  textinput.Model
-	sshIDsIn textinput.Model
-	tagsIn   textinput.Model
-	ipv6In   textinput.Model // "true/false"
-	vpcIn    textinput.Model
-	opts     Options
+	focus             int
+	nameIn            textinput.Model
+	regionIn          textinput.Model
+	sizeIn            textinput.Model
+	imageIn           textinput.Model
+	sshIDsIn          textinput.Model
+	tagsIn            textinput.Model
+	ipv6In            textinput.Model // "true/false"
+	vpcIn             textinput.Model
+	opts              Options
+	sshTable          table.Model
+	sshKeys           []do.SSHKeyRow
+	sshSelected       map[int]bool // keyID -> selected
+	sshPickerErr      string
+	pendingOpenCreate bool
 }
 
 func NewModel(api api, opts Options) Model {
@@ -173,6 +185,18 @@ func NewModel(api api, opts Options) Model {
 	}
 
 	m.initCreateForm()
+	m.sshSelected = map[int]bool{}
+
+	m.sshTable = table.New(
+		table.WithColumns([]table.Column{
+			{Title: "Sel", Width: 3},
+			{Title: "ID", Width: 8},
+			{Title: "Name", Width: 26},
+			{Title: "Fingerprint", Width: 24},
+		}),
+		table.WithFocused(true),
+		table.WithHeight(14),
+	)
 
 	return m
 }
@@ -199,6 +223,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rows = msg.rows
 		m.table.SetRows(toTableRows(m.rows))
 		m.status = fmt.Sprintf("Loaded %d droplet(s)", len(m.rows))
+
+		if m.pendingOpenCreate {
+			m.pendingOpenCreate = false
+			m.st = stateCreate
+			m.initCreateForm()
+		}
 
 	case dropletDetailsMsg:
 		m.busy = false
@@ -234,7 +264,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errText = msg.err.Error()
 		m.status = "Error"
 
+	case sshKeysLoadedMsg:
+		m.busy = false
+		m.errText = ""
+		m.sshKeys = msg.keys
+		m.sshTable.SetRows(toSSHTableRows(m.sshKeys, m.sshSelected))
+		m.status = fmt.Sprintf("Loaded %d SSH key(s)", len(m.sshKeys))
+
 	case tea.KeyMsg:
+
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
 		}
@@ -248,6 +286,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m, cmds = m.updateConfirm(msg, cmds)
 		case stateCreate:
 			m, cmds = m.updateCreate(msg, cmds)
+		case statePickSSHKeys:
+			m, cmds = m.updatePickSSH(msg, cmds)
 		}
 	}
 
@@ -274,6 +314,25 @@ func (m Model) nameExists(name string) bool {
 	return false
 }
 
+func (m Model) loadSSHKeysCmd() tea.Cmd {
+	m.busy = true
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+		defer cancel()
+		keys, err := m.api.ListSSHKeys(ctx)
+		if err != nil {
+			return apiErrMsg{err: err}
+		}
+		return sshKeysLoadedMsg{keys: keys}
+	}
+}
+
+func (m Model) viewPickSSH() string {
+	h := lipgloss.NewStyle().Bold(true).Render("Pick SSH Keys")
+	legend := lipgloss.NewStyle().Faint(true).Render("space=toggle  enter=use selected  esc=back")
+	return h + "\n\n" + m.sshTable.View() + "\n\n" + legend
+}
+
 func (m Model) View() string {
 	title := lipgloss.NewStyle().Bold(true).Render("DigitalOcean Droplets TUI")
 	top := title + "\n"
@@ -297,6 +356,8 @@ func (m Model) View() string {
 		return top + m.viewCreate()
 	case stateConfirmDelete, stateConfirmAction:
 		return top + m.viewConfirm()
+	case statePickSSHKeys:
+		return top + m.viewPickSSH()
 	default:
 		return top + "unknown state\n"
 	}
@@ -391,11 +452,12 @@ func (m Model) updateList(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 	}
 
 	switch {
-	case key.Matches(k, m.keys.Refresh):
-		cmds = append(cmds, m.refreshCmd())
 	case key.Matches(k, m.keys.Create):
+		// If droplets not loaded yet, auto-load then open create.
 		if len(m.rows) == 0 {
-			m.errText = "load droplets first (press r) so duplicates can be checked"
+			m.pendingOpenCreate = true
+			cmds = append(cmds, m.refreshCmd())
+			m.status = "Loading droplets…"
 			return m, cmds
 		}
 		m.st = stateCreate
@@ -494,9 +556,56 @@ func (m Model) updateConfirm(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 	return m, cmds
 }
 
+func (m Model) updatePickSSH(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
+	if key.Matches(k, m.keys.Back) {
+		m.st = stateCreate
+		return m, cmds
+	}
+	if m.busy {
+		return m, cmds
+	}
+
+	switch k.String() {
+	case " ":
+		i := m.sshTable.Cursor()
+		if i >= 0 && i < len(m.sshKeys) {
+			id := m.sshKeys[i].ID
+			m.sshSelected[id] = !m.sshSelected[id]
+			m.sshTable.SetRows(toSSHTableRows(m.sshKeys, m.sshSelected))
+		}
+	case "enter":
+		// write selected IDs into the Create form field (sshIDsIn)
+		var ids []string
+		for id, ok := range m.sshSelected {
+			if ok {
+				ids = append(ids, strconv.Itoa(id))
+			}
+		}
+		sort.Strings(ids)
+		m.sshIDsIn.SetValue(strings.Join(ids, ","))
+		m.st = stateCreate
+	}
+	// allow table navigation
+	var cmd tea.Cmd
+	m.sshTable, cmd = m.sshTable.Update(k)
+	cmds = append(cmds, cmd)
+	return m, cmds
+}
+
 func (m Model) updateCreate(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 	if key.Matches(k, m.keys.Back) {
 		m.st = stateList
+		return m, cmds
+	}
+	if key.Matches(k, m.keys.PickSSH) {
+		// open picker; load keys if not loaded yet
+		m.st = statePickSSHKeys
+		m.sshTable.SetHeight(max(8, m.height-9))
+		if len(m.sshKeys) == 0 {
+			cmds = append(cmds, m.loadSSHKeysCmd())
+		} else {
+			m.sshTable.SetRows(toSSHTableRows(m.sshKeys, m.sshSelected))
+		}
 		return m, cmds
 	}
 	if m.busy {
@@ -775,4 +884,21 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func toSSHTableRows(keys []do.SSHKeyRow, sel map[int]bool) []table.Row {
+	out := make([]table.Row, 0, len(keys))
+	for _, k := range keys {
+		mark := " "
+		if sel[k.ID] {
+			mark = "✓"
+		}
+		out = append(out, table.Row{
+			mark,
+			strconv.Itoa(k.ID),
+			k.Name,
+			k.Fingerprint,
+		})
+	}
+	return out
 }
