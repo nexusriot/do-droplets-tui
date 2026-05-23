@@ -1,0 +1,6 @@
+Package: do-droplets-tui
+Version: _version_
+Architecture: amd64
+Maintainer: Vladislav Ananev <nexus.riot@gmail.com>
+Description: Terminal UI for DigitalOcean (droplets, volumes, spaces, DNS, firewalls, AI)
+Installed-Size: 15000

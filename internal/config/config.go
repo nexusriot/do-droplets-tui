@@ -12,6 +12,20 @@ const DefaultPath = "/etc/do-droplets-tui/config.json"
 type Config struct {
 	DigitalOcean DigitalOceanConfig `json:"digitalocean"`
 	UI           UIConfig           `json:"ui"`
+	Spaces       SpacesConfig       `json:"spaces"`
+	Inference    InferenceConfig    `json:"inference"`
+}
+
+type SpacesConfig struct {
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+	Region    string `json:"region"` // e.g. "fra1"
+}
+
+type InferenceConfig struct {
+	ModelAccessKey string `json:"model_access_key"`
+	// BaseURL defaults to https://inference.do-ai.run/v1
+	BaseURL string `json:"base_url"`
 }
 
 type DigitalOceanConfig struct {
