@@ -51,6 +51,18 @@ type VolumeRow struct {
 	Region      string
 	SizeGB      int64
 	Description string
+	DropletIDs  []int
+}
+
+type SnapshotRow struct {
+	ID           string
+	Name         string
+	ResourceID   string
+	ResourceType string
+	Region       string
+	SizeGB       float64
+	MinDiskGB    int
+	Created      string
 }
 
 func (c *Client) ListDroplets(ctx context.Context) ([]DropletRow, error) {
@@ -216,6 +228,7 @@ func (c *Client) ListVolumes(ctx context.Context) ([]VolumeRow, error) {
 				Region:      v.Region.Slug,
 				SizeGB:      v.SizeGigaBytes,
 				Description: v.Description,
+				DropletIDs:  v.DropletIDs,
 			})
 		}
 
@@ -268,6 +281,110 @@ func (c *Client) DeleteVolume(ctx context.Context, id string) error {
 	}
 	_, err := c.godo.Storage.DeleteVolume(ctx, id)
 	return err
+}
+
+func (c *Client) GetVolume(ctx context.Context, id string) (*godo.Volume, error) {
+	v, _, err := c.godo.Storage.GetVolume(ctx, strings.TrimSpace(id))
+	return v, err
+}
+
+func (c *Client) AttachVolume(ctx context.Context, volumeID string, dropletID int) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return fmt.Errorf("volume id is empty")
+	}
+	_, _, err := c.godo.StorageActions.Attach(ctx, volumeID, dropletID)
+	return err
+}
+
+func (c *Client) DetachVolume(ctx context.Context, volumeID string, dropletID int) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return fmt.Errorf("volume id is empty")
+	}
+	_, _, err := c.godo.StorageActions.DetachByDropletID(ctx, volumeID, dropletID)
+	return err
+}
+
+func (c *Client) ResizeVolume(ctx context.Context, volumeID, region string, sizeGB int64) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return fmt.Errorf("volume id is empty")
+	}
+	if sizeGB <= 0 {
+		return fmt.Errorf("size must be a positive integer")
+	}
+	_, _, err := c.godo.StorageActions.Resize(ctx, volumeID, int(sizeGB), strings.TrimSpace(region))
+	return err
+}
+
+func (c *Client) ListVolumeSnapshots(ctx context.Context, volumeID string) ([]SnapshotRow, error) {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return nil, fmt.Errorf("volume id is empty")
+	}
+	var out []SnapshotRow
+	opt := &godo.ListOptions{PerPage: 200, Page: 1}
+	for {
+		snaps, resp, err := c.godo.Storage.ListSnapshots(ctx, volumeID, opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range snaps {
+			out = append(out, snapshotToRow(s))
+		}
+		if resp == nil || resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			break
+		}
+		opt.Page = page + 1
+	}
+	return out, nil
+}
+
+func (c *Client) CreateVolumeSnapshot(ctx context.Context, volumeID, name string) (*godo.Snapshot, error) {
+	volumeID = strings.TrimSpace(volumeID)
+	name = strings.TrimSpace(name)
+	if volumeID == "" {
+		return nil, fmt.Errorf("volume id is empty")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("snapshot name is required")
+	}
+	s, _, err := c.godo.Storage.CreateSnapshot(ctx, &godo.SnapshotCreateRequest{
+		VolumeID: volumeID,
+		Name:     name,
+	})
+	return s, err
+}
+
+func (c *Client) DeleteSnapshot(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("snapshot id is empty")
+	}
+	_, err := c.godo.Snapshots.Delete(ctx, id)
+	return err
+}
+
+func snapshotToRow(s godo.Snapshot) SnapshotRow {
+	region := ""
+	if len(s.Regions) > 0 {
+		region = s.Regions[0]
+	}
+	return SnapshotRow{
+		ID:           s.ID,
+		Name:         s.Name,
+		ResourceID:   s.ResourceID,
+		ResourceType: s.ResourceType,
+		Region:       region,
+		SizeGB:       s.SizeGigaBytes,
+		MinDiskGB:    s.MinDiskSize,
+		Created:      s.Created,
+	}
 }
 
 func ParseCSVInts(s string) ([]int, error) {
