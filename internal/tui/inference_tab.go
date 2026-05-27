@@ -34,24 +34,67 @@ func (m Model) updateAI(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 		return m, cmds
 	}
 
-	switch k.String() {
-	case "esc":
-		// First press: blur any focused input (so the next plain-key globals
-		// like tab-switching work). Second press: leave the AI tab.
-		if m.aiPromptIn.Focused() || m.aiSystemIn.Focused() {
+	inputFocused := m.aiPromptIn.Focused() || m.aiSystemIn.Focused()
+
+	if inputFocused {
+		switch k.String() {
+		case "esc":
 			m.aiPromptIn.Blur()
 			m.aiSystemIn.Blur()
 			m.status = "AI inputs unfocused — press tab to re-focus, esc again to leave"
 			return m, cmds
+		case "tab":
+			m.aiFocusField = (m.aiFocusField + 1) % 2
+			if m.aiFocusField == 0 {
+				m.aiPromptIn.Focus()
+				m.aiSystemIn.Blur()
+			} else {
+				m.aiSystemIn.Focus()
+				m.aiPromptIn.Blur()
+			}
+			return m, cmds
+		case "ctrl+j", "enter":
+			if m.aiFocusField == 1 {
+				// system field — let enter pass through to the input
+				break
+			}
+			prompt := strings.TrimSpace(m.aiPromptIn.Value())
+			if prompt == "" {
+				m.errText = "prompt is required"
+				return m, cmds
+			}
+			if len(m.aiModels) == 0 {
+				m.errText = "no models loaded (press r)"
+				return m, cmds
+			}
+			modelID := m.aiModels[m.aiModelIdx].ID
+			system := strings.TrimSpace(m.aiSystemIn.Value())
+			m.aiPending = true
+			m.aiResponse = "Waiting for response..."
+			m.status = "Sending to " + modelID
+			cmds = append(cmds, m.chatCompletionCmd(modelID, system, prompt))
+			return m, cmds
+		case "ctrl+c":
+			return m, append(cmds, tea.Quit)
 		}
+		// All other keys go straight to the focused input.
+		var cmd tea.Cmd
+		if m.aiFocusField == 0 {
+			m.aiPromptIn, cmd = m.aiPromptIn.Update(k)
+		} else {
+			m.aiSystemIn, cmd = m.aiSystemIn.Update(k)
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, cmds
+	}
+
+	// No input focused — navigation and action keys.
+	switch k.String() {
+	case "esc":
 		m.st = stateDroplets
 		return m, cmds
-
-	case "r":
-		m.aiResponse = ""
-		m.aiUsageInfo = ""
-		cmds = append(cmds, m.loadAIModelsCmd())
-
 	case "tab":
 		m.aiFocusField = (m.aiFocusField + 1) % 2
 		if m.aiFocusField == 0 {
@@ -61,58 +104,20 @@ func (m Model) updateAI(k tea.KeyMsg, cmds []tea.Cmd) (Model, []tea.Cmd) {
 			m.aiSystemIn.Focus()
 			m.aiPromptIn.Blur()
 		}
-
-	case "ctrl+j", "enter":
-		if m.aiFocusField == 1 {
-			// typing in system field, just update
-			break
-		}
-		prompt := strings.TrimSpace(m.aiPromptIn.Value())
-		if prompt == "" {
-			m.errText = "prompt is required"
-			return m, cmds
-		}
-		if len(m.aiModels) == 0 {
-			m.errText = "no models loaded (press r)"
-			return m, cmds
-		}
-		modelID := m.aiModels[m.aiModelIdx].ID
-		system := strings.TrimSpace(m.aiSystemIn.Value())
-		m.aiPending = true
-		m.aiResponse = "Waiting for response..."
-		m.status = "Sending to " + modelID
-		cmds = append(cmds, m.chatCompletionCmd(modelID, system, prompt))
-		return m, cmds
-
+	case "r":
+		m.aiResponse = ""
+		m.aiUsageInfo = ""
+		cmds = append(cmds, m.loadAIModelsCmd())
 	case "up", "k":
 		if m.aiModelIdx > 0 {
 			m.aiModelIdx--
 		}
-		return m, cmds
-
 	case "down", "j":
 		if m.aiModelIdx < len(m.aiModels)-1 {
 			m.aiModelIdx++
 		}
-		return m, cmds
-
 	case "ctrl+c":
-		// Plain `q` is intentionally NOT handled here — the global gate
-		// already protects it inside text-input states; if the user wants
-		// to use `q` to leave the tab, they need to unfocus inputs first
-		// (Esc) and then press the tab-switch key.
 		return m, append(cmds, tea.Quit)
-	}
-
-	// route key to focused input
-	var cmd tea.Cmd
-	if m.aiFocusField == 0 {
-		m.aiPromptIn, cmd = m.aiPromptIn.Update(k)
-	} else {
-		m.aiSystemIn, cmd = m.aiSystemIn.Update(k)
-	}
-	if cmd != nil {
-		cmds = append(cmds, cmd)
 	}
 	return m, cmds
 }
