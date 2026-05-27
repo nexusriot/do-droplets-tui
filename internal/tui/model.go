@@ -1217,82 +1217,99 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// global tab switching (except confirm/modal screens)
+		tabSwitched := false
 		if m.canSwitchTabNow() {
 			switch {
 			case key.Matches(msg, m.keys.TabDroplets):
 				m.st = stateDroplets
 				m.status = "Droplets"
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabVolumes):
 				m.st = stateVolumes
 				m.status = "Volumes"
 				if len(m.volumeRows) == 0 {
 					cmds = append(cmds, m.refreshVolumesCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabOps):
 				m.st = stateOpsLog
 				m.opsTable.SetRows(toOpsRows(m.ops))
 				m.status = "Ops log"
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabSnapshots):
 				m.st = stateSnapshots
 				m.status = "Snapshots"
 				if len(m.allSnapshots) == 0 {
 					cmds = append(cmds, m.refreshAllSnapshotsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabIPs):
 				m.st = stateReservedIPs
 				m.status = "Reserved IPs"
 				if len(m.reservedIPRows) == 0 {
 					cmds = append(cmds, m.refreshReservedIPsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabFirewalls):
 				m.st = stateFirewalls
 				m.status = "Firewalls"
 				if len(m.firewallRows) == 0 {
 					cmds = append(cmds, m.refreshFirewallsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabDomains):
 				m.st = stateDomains
 				m.status = "Domains"
 				if len(m.domainRows) == 0 {
 					cmds = append(cmds, m.refreshDomainsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabSpaces):
 				m.st = stateSpaces
 				m.status = "Spaces"
 				if len(m.bucketRows) == 0 && m.spacesClient != nil {
 					cmds = append(cmds, m.refreshBucketsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabAI):
 				m.st = stateAI
 				m.status = "AI Inference"
 				if len(m.aiModels) == 0 && m.inferenceClient != nil {
 					cmds = append(cmds, m.loadAIModelsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabAccount):
 				m.st = stateAccount
 				m.status = "Account"
 				if m.accountInfo == nil {
 					cmds = append(cmds, m.refreshAccountCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabVPCs):
 				m.st = stateVPCs
 				m.status = "VPCs"
 				if len(m.vpcRows) == 0 {
 					cmds = append(cmds, m.refreshVPCsCmd())
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabImages):
 				m.st = stateImages
 				m.status = "Images"
 				if len(m.imageRows) == 0 {
 					cmds = append(cmds, m.refreshImagesCmd(m.imagesMode))
 				}
+				tabSwitched = true
 			case key.Matches(msg, m.keys.TabAlerts):
 				m.st = stateAlerts
 				m.status = "Alert Policies"
 				if len(m.alertRows) == 0 {
 					cmds = append(cmds, m.refreshAlertsCmd())
 				}
+				tabSwitched = true
 			}
+		}
+		if tabSwitched {
+			return m, tea.Batch(cmds...)
 		}
 
 		switch m.st {
