@@ -20,7 +20,7 @@
 APP        := do-droplets-tui
 PKG        := ./cmd/do-droplets-tui
 GO         ?= go
-VERSION    ?= 0.2.1
+VERSION    ?= 0.2.2
 LDFLAGS    ?= -s -w
 BUILD_DIR  := build
 DIST_DIR   := dist

@@ -9,6 +9,32 @@ import (
 
 const DefaultPath = "/etc/do-droplets-tui/config.json"
 
+// LocalProfilePath returns the user-local config path (~/.config/do-droplets-tui/config.json).
+// Returns "" if the home directory cannot be determined.
+func LocalProfilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "do-droplets-tui", "config.json")
+}
+
+// ResolvePath returns the config file path to use.
+// If explicit is non-empty (--config flag was passed), it is returned as-is.
+// Otherwise the local profile (~/.config/do-droplets-tui/config.json) is used
+// when it exists, falling back to the system default (/etc/do-droplets-tui/config.json).
+func ResolvePath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if local := LocalProfilePath(); local != "" {
+		if _, err := os.Stat(local); err == nil {
+			return local
+		}
+	}
+	return DefaultPath
+}
+
 type Config struct {
 	DigitalOcean DigitalOceanConfig `json:"digitalocean"`
 	UI           UIConfig           `json:"ui"`

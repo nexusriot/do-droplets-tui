@@ -17,10 +17,10 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", config.DefaultPath, "Path to config file")
+	cfgPath := flag.String("config", "", "Path to config file (default: ~/.config/do-droplets-tui/config.json, then /etc/do-droplets-tui/config.json)")
 	flag.Parse()
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.Load(config.ResolvePath(*cfgPath))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)

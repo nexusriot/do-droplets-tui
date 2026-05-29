@@ -10,7 +10,7 @@ Single binary. Written in Go on top of [Bubble Tea](https://github.com/charmbrac
 [bubbles](https://github.com/charmbracelet/bubbles), and
 [lipgloss](https://github.com/charmbracelet/lipgloss).
 Uses [`digitalocean/godo`](https://github.com/digitalocean/godo) for the
-control plane, a hand-rolled S3 client for Spaces, and a small HTTP client
+control plane, the AWS SDK v2 S3 client for Spaces, and a small HTTP client
 for the OpenAI-compatible serverless inference endpoint.
 
 ---
@@ -102,9 +102,14 @@ make run                  # go run ./cmd/do-droplets-tui
 
 ## Configuration
 
-The binary reads a JSON config (default `/etc/do-droplets-tui/config.json`,
-override with `--config`). The `DO_TOKEN` environment variable overrides
-`digitalocean.token` (handy for one-off runs).
+The binary reads a JSON config. Config path resolution order (first match wins):
+
+1. `--config <path>` — explicit flag, used as-is
+2. `~/.config/do-droplets-tui/config.json` — local user profile (if file exists)
+3. `/etc/do-droplets-tui/config.json` — system-wide default
+
+The `DO_TOKEN` environment variable overrides `digitalocean.token` from the
+config file (handy for one-off runs or CI).
 
 ```jsonc
 {
@@ -158,7 +163,7 @@ internal/do/                   godo wrapper — the ONLY place godo is imported
    images_ext.go                   ListApplication, ListByTag, Update, Transfer,
                                    Convert, CreateAlertPolicy, GetDropletCPU
 internal/inference/client.go   hand-rolled HTTP client for inference.do-ai.run/v1
-internal/spaces/client.go      hand-rolled S3 client for DO Spaces (no AWS SDK)
+internal/spaces/client.go      AWS SDK v2 S3 client for DO Spaces
 internal/tui/                  the UI; a single Bubble Tea Model
    model.go                        state enum, key map, msg routing, View dispatch
    <resource>_tab.go               one file per tab
